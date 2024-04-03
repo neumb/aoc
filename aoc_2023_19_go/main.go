@@ -19,9 +19,9 @@ type WorkflowRule struct {
 	Then   string
 }
 
-func WorkflowRuleFromString(s string) WorkflowRule {
+func WorkflowRuleFromString(s string) *WorkflowRule {
 	if !strings.Contains(s, ":") {
-		return WorkflowRule{nil, s}
+		return &WorkflowRule{nil, s}
 	}
 
 	// contains clause
@@ -34,38 +34,38 @@ func WorkflowRuleFromString(s string) WorkflowRule {
 		}
 
 		clause := &RuleClause{lhs, "<", rhsInt}
-		return WorkflowRule{clause, then}
-	} else {
-		lhs, rhs, _ := strings.Cut(s, ">")
-		rhs, then, _ := strings.Cut(rhs, ":")
-		rhsInt, err := strconv.Atoi(rhs)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		clause := &RuleClause{lhs, ">", rhsInt}
-		return WorkflowRule{clause, then}
+		return &WorkflowRule{clause, then}
 	}
+
+	lhs, rhs, _ := strings.Cut(s, ">")
+	rhs, then, _ := strings.Cut(rhs, ":")
+	rhsInt, err := strconv.Atoi(rhs)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	clause := &RuleClause{lhs, ">", rhsInt}
+	return &WorkflowRule{clause, then}
 }
 
 type Workflow struct {
 	Name  string
-	Rules []WorkflowRule
+	Rules []*WorkflowRule
 }
 
-func WorkflowFromString(s string) Workflow {
+func WorkflowFromString(s string) *Workflow {
 	split := strings.SplitAfter(s, "{")
 	workflowName, rhs := strings.TrimRight(split[0], "{"), strings.TrimRight(split[1], "}")
 
 	ruleStrings := strings.Split(rhs, ",")
 
-	rules := make([]WorkflowRule, 0, 2)
+	rules := make([]*WorkflowRule, 0, 2)
 
 	for _, rs := range ruleStrings {
 		rules = append(rules, WorkflowRuleFromString(rs))
 	}
 
-	return Workflow{workflowName, rules}
+	return &Workflow{workflowName, rules}
 }
 
 type Part map[string]int
@@ -93,13 +93,13 @@ func (p Part) Sum() int {
 }
 
 type AoC struct {
-	Workflows map[string]Workflow
+	Workflows map[string]*Workflow
 	Parts     []Part
 }
 
 func parse(input string) AoC {
 	lines := strings.Split(strings.TrimSpace(input), "\n")
-	wrkflws := make(map[string]Workflow)
+	wrkflws := make(map[string]*Workflow)
 
 	var cur int
 
@@ -128,13 +128,11 @@ func parse(input string) AoC {
 }
 
 func (a *AoC) CheckPart(p Part) bool {
-	//fmt.Println("checking part", p)
-	wrkflw := a.Workflows["in"]
+	workflow := a.Workflows["in"]
 
 outer:
 	for {
-		//fmt.Println(wrkflw.Name)
-		for _, r := range wrkflw.Rules {
+		for _, r := range workflow.Rules {
 			if r.Clause != nil {
 				lhsVal := p[r.Clause.Lhs]
 				var clauseSatisfied bool
@@ -151,7 +149,7 @@ outer:
 					if len(r.Then) == 1 {
 						return r.Then == "A"
 					} else {
-						wrkflw = a.Workflows[r.Then]
+						workflow = a.Workflows[r.Then]
 						continue outer
 					}
 				}
@@ -159,7 +157,7 @@ outer:
 			} else if len(r.Then) == 1 {
 				return r.Then == "A"
 			} else {
-				wrkflw = a.Workflows[r.Then]
+				workflow = a.Workflows[r.Then]
 				continue outer
 			}
 		}
@@ -176,13 +174,45 @@ func (a *AoC) part1() any {
 	return res
 }
 
+func (a *AoC) CanBeAc(wrk *Workflow, rCur int) bool {
+	r := wrk.Rules[rCur]
+
+	if r.Then == "A" {
+		return true
+	}
+
+	// if implies go to the specific workflow, 
+	// then change the workflow
+
+	if len(r.Then) > 1 {
+		if a.CanBeAc(a.Workflows[r.Then], 0) {
+			return true
+		}
+	}
+
+	if rCur+1 < len(wrk.Rules) {
+		return a.CanBeAc(wrk, rCur+1)
+	}
+
+	return false
+}
+
+func (a *AoC) printAc(wrk *Workflow) {
+	if a.CanBeAc(wrk, 0) {
+		fmt.Println(wrk.Rules)
+	}
+}
+
 func (a *AoC) part2() any {
+	cur := a.Workflows["in"]
+
+	a.printAc(cur)
 	return 0
 }
 
 func main() {
-	//content, err := os.ReadFile("test-input.txt")
-	content, err := os.ReadFile("input.txt")
+	content, err := os.ReadFile("test-input.txt")
+	// content, err := os.ReadFile("input.txt")
 
 	if err != nil {
 		log.Fatal(err)
