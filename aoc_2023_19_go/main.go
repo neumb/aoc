@@ -93,8 +93,10 @@ func (p Part) Sum() int {
 }
 
 type AoC struct {
-	Workflows map[string]*Workflow
-	Parts     []Part
+	Workflows         map[string]*Workflow
+	Parts             []Part
+	AccRanges         AccRangeMap
+	AccRangesComputed bool
 }
 
 func parse(input string) AoC {
@@ -124,45 +126,62 @@ func parse(input string) AoC {
 	return AoC{
 		wrkflws,
 		parts,
+		nil,
+		false,
 	}
 }
 
 func (a *AoC) CheckPart(p Part) bool {
-	workflow := a.Workflows["in"]
-
 outer:
-	for {
-		for _, r := range workflow.Rules {
-			if r.Clause != nil {
-				lhsVal := p[r.Clause.Lhs]
-				var clauseSatisfied bool
-				switch r.Clause.Op {
-				case ">":
-					clauseSatisfied = lhsVal > r.Clause.Rhs
-				case "<":
-					clauseSatisfied = lhsVal < r.Clause.Rhs
-				default:
-					panic("invalid clause operator")
-				}
-
-				if clauseSatisfied {
-					if len(r.Then) == 1 {
-						return r.Then == "A"
-					} else {
-						workflow = a.Workflows[r.Then]
-						continue outer
-					}
-				}
-
-			} else if len(r.Then) == 1 {
-				return r.Then == "A"
-			} else {
-				workflow = a.Workflows[r.Then]
+	for _, v := range a.computeRanges() {
+		for k, r := range v {
+			if p[k] < r.Start || p[k] > r.End {
 				continue outer
 			}
 		}
+
+		return true
 	}
+
+	return false
 }
+
+//func (a *AoC) CheckPart(p Part) bool {
+//workflow := a.Workflows["in"]
+
+//outer:
+//for {
+//for _, r := range workflow.Rules {
+//if r.Clause != nil {
+//lhsVal := p[r.Clause.Lhs]
+//var clauseSatisfied bool
+//switch r.Clause.Op {
+//case ">":
+//clauseSatisfied = lhsVal > r.Clause.Rhs
+//case "<":
+//clauseSatisfied = lhsVal < r.Clause.Rhs
+//default:
+//panic("invalid clause operator")
+//}
+
+//if clauseSatisfied {
+//if len(r.Then) == 1 {
+//return r.Then == "A"
+//} else {
+//workflow = a.Workflows[r.Then]
+//continue outer
+//}
+//}
+
+//} else if len(r.Then) == 1 {
+//return r.Then == "A"
+//} else {
+//workflow = a.Workflows[r.Then]
+//continue outer
+//}
+//}
+//}
+//}
 
 func (a *AoC) part1() any {
 	var res int
@@ -181,7 +200,7 @@ func (a *AoC) CanBeAc(wrk *Workflow, rCur int) bool {
 		return true
 	}
 
-	// if implies go to the specific workflow, 
+	// if implies go to the specific workflow,
 	// then change the workflow
 
 	if len(r.Then) > 1 {
@@ -203,15 +222,129 @@ func (a *AoC) printAc(wrk *Workflow) {
 	}
 }
 
-func (a *AoC) part2() any {
-	cur := a.Workflows["in"]
+type AccRangeMap map[string]map[string]*Range
 
-	a.printAc(cur)
-	return 0
+type Range struct {
+	Start int
+	End   int
+}
+
+func NewRanges() map[string]*Range {
+	return map[string]*Range{
+		"x": {1, 4000},
+		"m": {1, 4000},
+		"a": {1, 4000},
+		"s": {1, 4000},
+	}
+}
+
+func (r *Range) String() string {
+	return fmt.Sprintf("(%d..=%d)", r.Start, r.End)
+}
+
+func (a *AoC) unravelEnter(w *Workflow, rIdx int, rng map[string]*Range) {
+	r := w.Rules[rIdx]
+
+	if r.Clause != nil {
+		if r.Clause.Op == ">" {
+			// m > 1548 --> m <= 2006
+			rng[r.Clause.Lhs].End = min(rng[r.Clause.Lhs].End, r.Clause.Rhs)
+		} else if r.Clause.Op == "<" {
+			// a < 2006 --> a >= 2006
+			rng[r.Clause.Lhs].Start = max(rng[r.Clause.Lhs].Start, r.Clause.Rhs)
+		} else {
+			panic("unexpected rule clause operator")
+		}
+	}
+
+	if rIdx > 0 {
+		a.unravelEnter(w, rIdx-1, rng)
+		return
+	}
+
+	if w.Name == "in" {
+		// reached the enter workflow
+		return
+	}
+
+	for _, pw := range a.Workflows {
+		for pIdx, pr := range pw.Rules {
+			if pr.Then == w.Name {
+				a.unravel(pw, pIdx, rng)
+				return
+			}
+		}
+	}
+
+	panic(fmt.Sprintf("could not find previous workflow for %s", w.Name))
+}
+
+func (a *AoC) unravel(w *Workflow, rIdx int, rng map[string]*Range) {
+	r := w.Rules[rIdx]
+
+	if r.Clause != nil {
+		if r.Clause.Op == ">" {
+			rng[r.Clause.Lhs].Start = max(rng[r.Clause.Lhs].Start, r.Clause.Rhs+1)
+		} else if r.Clause.Op == "<" {
+			rng[r.Clause.Lhs].End = min(rng[r.Clause.Lhs].End, r.Clause.Rhs-1)
+		} else {
+			panic("unexpected rule clause operator")
+		}
+	}
+
+	if rIdx > 0 {
+		a.unravelEnter(w, rIdx-1, rng)
+	} else if w.Name != "in" {
+		for _, pw := range a.Workflows {
+			for pIdx, pr := range pw.Rules {
+				if pr.Then == w.Name {
+					a.unravel(pw, pIdx, rng)
+					return
+				}
+			}
+		}
+
+		panic("could not fidenter workflow")
+	}
+}
+
+func (a *AoC) computeRanges() AccRangeMap {
+	if a.AccRangesComputed {
+		return a.AccRanges
+	}
+
+	a.AccRanges = make(AccRangeMap)
+
+	for _, w := range a.Workflows {
+		for rIdx, r := range w.Rules {
+			if r.Then != "A" {
+				continue
+			}
+			rRng := NewRanges()
+			a.unravel(w, rIdx, rRng)
+			a.AccRanges[fmt.Sprintf("%s:%d", w.Name, rIdx)] = rRng
+		}
+	}
+
+	a.AccRangesComputed = true
+	return a.AccRanges
+}
+
+func (a *AoC) part2() any {
+	var sum int
+	for _, rr := range a.computeRanges() {
+		prod := 1
+		for _, r := range rr {
+			prod *= (r.End - r.Start + 1)
+		}
+		sum += prod
+	}
+
+	return sum
 }
 
 func main() {
-	content, err := os.ReadFile("test-input.txt")
+	content, err := os.ReadFile("input.txt")
 	// content, err := os.ReadFile("input.txt")
 
 	if err != nil {
